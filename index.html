@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shrine LOD Viewer</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: black;
+    }
+
+    canvas {
+      touch-action: none;
+    }
+
+    #ui {
+      position: fixed;
+      top: 8px;
+      left: 8px;
+      color: #fff;
+      font: 12px monospace;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 6px 10px;
+      border-radius: 4px;
+      z-index: 10;
+    }
+
+    #ui select {
+      margin-left: 6px;
+    }
+
+    #ui select:disabled {
+      opacity: 0.4;
+    }
+
+    #walk-controls label {
+      display: block;
+      margin: 2px 0;
+    }
+  </style>
+  <script type="module" crossorigin src="/splat-compare-viewer/assets/index-hKIxM6Hq.js"></script>
+</head>
+
+<body>
+  <div id="ui">
+    Scene:
+    <select id="scene-select"></select>
+    <br>
+    Format:
+    <select id="format-select"></select>
+    <br>
+    Quality:
+    <select id="quality-select">
+      <option value="low">軽量 (1.2M splats, 1x)</option>
+      <option value="medium" selected>標準 (2.5M splats, 1.5x)</option>
+      <option value="high">高画質 (5M splats, 2x)</option>
+    </select>
+    <div id="walk-controls" style="display:none; margin-top:6px; border-top:1px solid #444; padding-top:6px;">
+      <div style="opacity:.75; margin-bottom:4px;">W/S 前後・A/D 旋回・Q/E 横歩 / ドラッグ=カメラ</div>
+      <label>歩行アニメ常時 <input id="walk-play" type="checkbox"></label>
+      <label>速度 <input id="walk-speed" type="range" min="0.5" max="6" step="0.1" value="2.2"></label>
+      <label>足振り° <input id="walk-amp" type="range" min="0" max="45" step="1" value="12"></label>
+      <label>上下バウンド <input id="walk-bob" type="range" min="0" max="0.08" step="0.005" value="0.03"></label>
+      <label>上半身ゆれ <input id="walk-sway" type="range" min="0" max="0.2" step="0.01" value="0.07"></label>
+    </div>
+    <div id="stats"></div>
+  </div>
+  <script>
+    window.addEventListener('unhandledrejection', (e) => {
+      const msg = e.reason && (e.reason.stack || e.reason.message || String(e.reason));
+      console.error('UNHANDLED_REJECTION_DEBUG:', msg);
+    });
+    window.addEventListener('error', (e) => {
+      console.error('WINDOW_ERROR_DEBUG:', e.message, e.filename, e.lineno);
+    });
+  </script>
+</body>
+
+</html>
