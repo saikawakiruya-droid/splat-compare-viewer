@@ -52,6 +52,19 @@ const SCENES = {
   },
 };
 
+// Hosted build (GitHub Pages) bundles only the small kiruya assets; the large
+// shrine files can't be served from Pages (100MB/file limit), so drop those
+// scenes when built with VITE_HOSTED=1.
+if (import.meta.env.VITE_HOSTED) {
+  delete SCENES.shrine_light;
+  delete SCENES.shrine_clean;
+}
+
+// Asset paths in SCENES are site-root-absolute ("/kiruya-lod.rad"). Under a
+// Pages subpath (base=/repo/) they must be prefixed with BASE_URL.
+const BASE = import.meta.env.BASE_URL.replace(/\/+$/, "");
+const asset = (p) => BASE + p;
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#cfe6f2"); // 薄い空色
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
@@ -188,7 +201,7 @@ function loadCurrent() {
   orbit.enabled = false;
   controls.fpsMovement.enable = true;
 
-  const url = sceneDef.formats[formatSelect.value].file;
+  const url = asset(sceneDef.formats[formatSelect.value].file);
   loadLine = `Loading ${url} ...`;
   statsEl.textContent = loadLine;
   const startTime = performance.now();
@@ -258,7 +271,7 @@ function loadWalkRig(sceneDef) {
   swayGroup.add(flipGroup);
   scene.add(moveRoot);
 
-  const body = new SplatMesh({ url: bodyUrl });
+  const body = new SplatMesh({ url: asset(bodyUrl) });
   flipGroup.add(body);
   loadedMeshes.push(body);
 
@@ -266,7 +279,7 @@ function loadWalkRig(sceneDef) {
   legUrls.forEach((legUrl) => {
     const hip = new THREE.Group();
     hip.position.set(...pivot);
-    const leg = new SplatMesh({ url: legUrl });
+    const leg = new SplatMesh({ url: asset(legUrl) });
     // The leg PLY is stored relative to the hip pivot P (P was subtracted at
     // split time), so it needs no local offset: placing the hip group at P puts
     // the leg back at its authored spot, and rotating the hip swings the leg
