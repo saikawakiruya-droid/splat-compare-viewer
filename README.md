@@ -21,9 +21,8 @@ npx vite
 
 ## アセット
 
-スプラットの実データは容量が大きいため Git には含めない。`assets-manifest.json` に
-一覧があり、`scripts/fetch-assets.sh` が `ASSET_BASE_URL` から `public/` に取得する。
-`jq` が必要（`brew install jq`）。手動で `public/` に置いてもよい。
+スプラットの実データは容量が大きいため Git には含めない。共有セットを取得して
+`viewer/public/` に置く。`assets-manifest.json` が必要ファイルの一覧。
 
 共有セット（約 1.0GB、100MB 超のファイルを含む）:
 
@@ -37,7 +36,23 @@ npx vite
 **除外は生の巨大PLYのみ:** `shrine.ply`・`shrine_clean.ply`（各 1.1GB）。
 ローカルに実データがあれば `main.js` の `SCENES` に追記すれば復活できる。
 
-**ASSET_BASE_URL の置き場所:** ＜チームで決めて追記＞
+### 入手方法A: Google Drive（現行）
+
+共有 Drive フォルダ: **＜共有フォルダのリンクをここに記入＞**
+
+1. フォルダ内の全ファイルをダウンロード。
+2. `viewer/public/` に置く（`assets-manifest.json` の名前どおり）。
+
+> Drive は大きいファイルの Range/CORS に対応しないため、ブラウザから直接読むのではなく
+> 一度 `public/` に落とす。ローカルの Vite が配信するので RAD の Range 読みもローカルで効く。
+
+### 入手方法B: 静的ホスト（S3 / R2 等がある場合）
+
+`ASSET_BASE_URL` にベース URL を設定して取得（`jq` が必要）:
+
+```bash
+ASSET_BASE_URL="https://<host>/<path>" ./scripts/fetch-assets.sh
+```
 
 ## 操作
 
