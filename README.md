@@ -25,15 +25,16 @@ npx vite
 一覧があり、`scripts/fetch-assets.sh` が `ASSET_BASE_URL` から `public/` に取得する。
 `jq` が必要（`brew install jq`）。手動で `public/` に置いてもよい。
 
-共有セット（約 700MB、100MB 超のファイルを含む）:
+共有セット（約 1.0GB、100MB 超のファイルを含む）:
 
 | シーン | 形式 |
 |---|---|
 | shrine_light (SH無) | RAD 128MB / SPZ 108MB / 生PLY 278MB / .splat 159MB |
+| shrine_clean (SH3) | RAD 307MB |
 | kiruya | RAD 7.4MB / SPZ 5.5MB / 生PLY 17MB / .splat 8MB |
 | kiruya — 歩行 | part_body / part_legL / part_legR (計 ~17MB) |
 
-**除外:** `shrine.ply`・`shrine_clean.ply`（各 1.1GB）と `shrine_clean-lod.rad`（307MB）。
+**除外は生の巨大PLYのみ:** `shrine.ply`・`shrine_clean.ply`（各 1.1GB）。
 ローカルに実データがあれば `main.js` の `SCENES` に追記すれば復活できる。
 
 **ASSET_BASE_URL の置き場所:** ＜チームで決めて追記＞

@@ -57,7 +57,7 @@
 
 ## 未検証・TODO
 
-- shrine_clean（SH3, 軽量化前）と原本 shrine.ply の生PLY比較はローカルのみ
-  （1.1GB級のため共有セットから除外）。
+- shrine_clean（SH3, 軽量化前）は **RAD(307MB) を共有**。生PLY(1.1GB)と原本
+  shrine.ply(1.18GB)の比較はローカルのみ（生の巨大ファイルのため共有セットから除外）。
 - ASSET_BASE_URL（共有ストレージ）の確定。
 - 検証記録の正式な置き場（Notion/Slack）の決定と移送。

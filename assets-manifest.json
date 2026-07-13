@@ -1,10 +1,11 @@
 {
-  "comment": "public/ に置くスプラットアセット一覧。巨大な生PLY(shrine.ply, shrine_clean.ply)とshrine_clean-lod.radは共有セットから除外済み。scripts/fetch-assets.sh が ASSET_BASE_URL からこれらを取得する。",
+  "comment": "public/ に置くスプラットアセット一覧。除外は生の巨大PLYのみ(shrine.ply, shrine_clean.ply 各1.1GB)。shrine_clean-lod.rad(LOD)は共有対象。scripts/fetch-assets.sh が ASSET_BASE_URL からこれらを取得する。",
   "files": [
     "shrine_light-lod.rad",
     "shrine_light-lod.spz",
     "shrine_light.ply",
     "shrine_light.splat",
+    "shrine_clean-lod.rad",
     "kiruya-lod.rad",
     "kiruya-lod.spz",
     "kiruya.ply",

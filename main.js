@@ -19,8 +19,16 @@ const SCENES = {
       splat: { file: "/shrine_light.splat", label: ".splat — LOD無 (159MB)" },
     },
   },
-  // shrine_clean (SH3) と shrine 原本 は生PLYが1.1GB級で共有セットから除外したため
-  // シーンも外している。ローカルにアセットがあれば SCENES に追記すれば復活する。
+  shrine_clean: {
+    label: "shrine_clean (SH3, 軽量化前)",
+    camera: { pos: [-6, 3.2, 6], look: [2, 3.0, -1] },
+    formats: {
+      // RAD(LOD)のみ共有。生PLY(1.1GB)は巨大なため除外。
+      rad: { file: "/shrine_clean-lod.rad", label: "RAD — LOD (307MB, SH3)" },
+    },
+  },
+  // shrine 原本(shrine.ply)は 1.18GB の生PLY のみで、共有できる非生アセットが
+  // 無いためシーンごと除外。ローカルに実データがあれば SCENES に追記で復活可。
   kiruya: {
     label: "kiruya",
     camera: { pos: [0, 0, 2.2], look: [0, 0, 0] },
