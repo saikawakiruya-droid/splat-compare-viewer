@@ -124,8 +124,8 @@ window.__controls = controls; // exposed for debugging/headless verification
 // framing distance, whatever the scale. Hold Shift for a 5x burst (built in).
 function applyNavSpeed(refDist) {
   const d = Math.max(0.5, refDist || 3);
-  controls.fpsMovement.moveSpeed = d * 1.2; // WASD / arrows
-  controls.pointerControls.scrollSpeed = d * 6; // mouse wheel dolly
+  controls.fpsMovement.moveSpeed = d * 0.4; // WASD / arrows (Shift = 5x burst)
+  controls.pointerControls.scrollSpeed = d * 2; // mouse wheel dolly
 }
 applyNavSpeed(3);
 window.__applyNavSpeed = applyNavSpeed;
