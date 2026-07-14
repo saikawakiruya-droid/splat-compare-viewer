@@ -62,7 +62,7 @@ const SCENES = {
       body: "/part_body.ply",
       legs: ["/part_legL.ply", "/part_legR.ply"],
       pivot: [0.0497, 0.2502, 0.0],
-      groundY: 0.15, // display-space courtyard floor (tuned visually in shrine_light)
+      groundY: 0.4, // display-space courtyard floor (tuned visually in shrine_light)
       scale: 1.5, // avatar scale relative to the shrine
     },
   },
@@ -159,6 +159,7 @@ window.__applyNavSpeed = applyNavSpeed;
 const orbit = new OrbitControls(camera, renderer.domElement);
 orbit.enableDamping = true;
 orbit.enabled = false;
+window.__orbit = orbit; // exposed for headless tuning/verification
 let useOrbit = false;
 
 const statsEl = document.getElementById("stats");
@@ -446,6 +447,7 @@ function loadWalkRig(sceneDef) {
     moveRoot, swayGroup, hips, ground,
     phase: 0, lastTime: 0,
     char: { x: 0, z: 0 }, heading: 0,
+    prevX: 0, prevZ: 0, // for camera follow-by-delta (free mouse look)
     keys: {},
     groundY, scaleGroup,
   };
@@ -796,6 +798,23 @@ renderer.setAnimationLoop((time) => {
     walkRig.moveRoot.position.z = walkRig.char.z;
     walkRig.moveRoot.rotation.y = walkRig.heading;
 
+    // Camera follows the avatar's *movement* without locking to it: shift the
+    // orbit target and camera by however far the avatar moved this frame. The
+    // keyboard drives the avatar; the mouse still freely orbits/pans/zooms the
+    // world view (which rides along as you walk). Earlier the target was hard-
+    // snapped to the avatar every frame, so the mouse view kept getting yanked
+    // back — that's the coupling this removes.
+    const dxs = walkRig.char.x - walkRig.prevX;
+    const dzs = walkRig.char.z - walkRig.prevZ;
+    if (dxs || dzs) {
+      orbit.target.x += dxs;
+      orbit.target.z += dzs;
+      camera.position.x += dxs;
+      camera.position.z += dzs;
+    }
+    walkRig.prevX = walkRig.char.x;
+    walkRig.prevZ = walkRig.char.z;
+
     // --- walk cycle (ported from viewer_walk.html) ---
     // Animate while moving; the 歩行 checkbox forces it on for an in-place demo.
     const anim = walkPlay.checked || walking;
@@ -811,9 +830,6 @@ renderer.setAnimationLoop((time) => {
     walkRig.swayGroup.rotation.y = sway * 0.5 * Math.sin(phase); // ひねり
     walkRig.swayGroup.position.y = bob * Math.abs(Math.sin(phase)); // 上下バウンド
 
-    // camera orbits around the moving avatar (at its mid-height above ground)
-    const eyeY = walkRig.groundY + 0.45 * (walkRig.scaleGroup ? walkRig.scaleGroup.scale.x : 1);
-    orbit.target.set(walkRig.char.x, eyeY, walkRig.char.z);
   }
 
   renderer.render(scene, camera);
