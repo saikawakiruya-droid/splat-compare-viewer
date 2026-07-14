@@ -50,6 +50,22 @@ const SCENES = {
       pivot: [0.0497, 0.2502, 0.0], // P: hip joint, in the parts' own frame
     },
   },
+  shrine_walk: {
+    label: "神社を歩く (kiruya + shrine)",
+    camera: { pos: [3, 2, 4], look: [0, 1, 0] },
+    // Same walk rig, but with the shrine as the environment splat and a flat
+    // walkable plane at the shrine's ground height. The avatar moves over the
+    // plane (no terrain following). groundY/scale are starting values; on-screen
+    // sliders tune them live since the exact ground height depends on the data.
+    walk: {
+      env: "/shrine_light-lod.rad", // environment (LOD streams)
+      body: "/part_body.ply",
+      legs: ["/part_legL.ply", "/part_legR.ply"],
+      pivot: [0.0497, 0.2502, 0.0],
+      groundY: 0.95, // display-space ground height (data ground y≈-0.97, flipped)
+      scale: 1.5, // avatar scale relative to the shrine
+    },
+  },
 };
 
 // Hosted build (GitHub Pages) bundles only the small kiruya assets; the large
@@ -58,6 +74,7 @@ const SCENES = {
 if (import.meta.env.VITE_HOSTED) {
   delete SCENES.shrine_light;
   delete SCENES.shrine_clean;
+  delete SCENES.shrine_walk; // needs the large shrine asset, absent on Pages
 }
 
 // Asset paths in SCENES are site-root-absolute ("/kiruya-lod.rad"). Under a
@@ -348,28 +365,49 @@ function loadCurrent(avoid = []) {
 // pre-split part files: each part is just a normal SplatMesh in the scene graph.
 function loadWalkRig(sceneDef) {
   qualitySelect.disabled = true; // raw parts, no LOD
-  qualitySelect.title = "分割パーツ(生PLY)のため画質指定は効きません";
+  qualitySelect.title = "分割パーツ(生パーツ)のため画質指定は効きません";
   loadLine = "Loading 分割パーツ (body + 脚L + 脚R) ...";
   statsEl.textContent = loadLine;
   const startTime = performance.now();
 
-  const { body: bodyUrl, legs: legUrls, pivot } = sceneDef.walk;
+  const { body: bodyUrl, legs: legUrls, pivot, env } = sceneDef.walk;
   const FOOT_Y = 0.4969; // parts_meta foot_ellipse.y — sole height in the parts frame
+  const groundY = sceneDef.walk.groundY ?? 0; // display-space plane height
+  const avatarScale = sceneDef.walk.scale ?? 1;
+
+  // Optional environment splat (e.g. the shrine). Flipped like every other
+  // scene so its -Y-up data faces the +Y-up camera; it's static scenery the
+  // avatar walks through.
+  if (env) {
+    const isLod = env.endsWith(".rad") || env.endsWith(".spz");
+    const envMesh = new SplatMesh({ url: asset(env), lod: isLod, nonLod: true });
+    envMesh.quaternion.set(1, 0, 0, 0);
+    scene.add(envMesh);
+    loadedMeshes.push(envMesh);
+    window.__envMesh = envMesh;
+  }
 
   // Nesting, outer to inner:
-  //   moveRoot   — locomotion: position.x/z on the ground, rotation.y heading,
-  //                position.y lifts the flipped avatar so its soles sit at y=0
-  //     swayGroup  — whole-body walk sway (X roll + Y twist) and vertical bob
-  //       flipGroup — y/z flip (180° about X) so a -Y-up avatar faces the
-  //                   +Y-up camera, matching the single-mesh path
-  //         body    — includes the ground shadow splats; static within the rig
-  //         hipL/hipR — swing each leg about the hip pivot P
+  //   moveRoot   — locomotion: position.x/z on the plane, position.y = groundY,
+  //                rotation.y heading
+  //     scaleGroup — avatarScale (fit the avatar to the environment)
+  //       liftGroup — position.y = FOOT_Y so the flipped soles sit on the plane
+  //         swayGroup — whole-body walk sway (X roll + Y twist) and vertical bob
+  //           flipGroup — y/z flip (180° about X) so a -Y-up avatar stands up
+  //             body    — includes the ground shadow splats; static within rig
+  //             hipL/hipR — swing each leg about the hip pivot P
   const moveRoot = new THREE.Group();
-  moveRoot.position.y = FOOT_Y; // flip put soles at y=-FOOT_Y; lift to y=0
+  moveRoot.position.y = groundY;
+  const scaleGroup = new THREE.Group();
+  scaleGroup.scale.setScalar(avatarScale);
+  const liftGroup = new THREE.Group();
+  liftGroup.position.y = FOOT_Y; // flip puts soles at y=-FOOT_Y; lift to 0
   const swayGroup = new THREE.Group();
   const flipGroup = new THREE.Group();
   flipGroup.rotation.x = Math.PI;
-  moveRoot.add(swayGroup);
+  moveRoot.add(scaleGroup);
+  scaleGroup.add(liftGroup);
+  liftGroup.add(swayGroup);
   swayGroup.add(flipGroup);
   scene.add(moveRoot);
 
@@ -394,11 +432,14 @@ function loadWalkRig(sceneDef) {
     loadedMeshes.push(leg);
   });
 
-  // A fixed ground grid at y=0. The avatar (in moveRoot) moves over it, so
-  // real translation — not a treadmill — reads as walking. Added directly to
-  // the scene, not moveRoot, so it stays put as the avatar walks across it.
-  const ground = new THREE.GridHelper(20, 40, 0x99b7c7, 0xbcd3de);
-  ground.position.y = 0;
+  // Flat walkable plane at groundY: a grid the avatar moves over so real
+  // translation (not a treadmill) reads as walking. Sized to the environment
+  // when present. Kept in the scene (not moveRoot) so it stays put underfoot.
+  const gridSize = env ? 40 : 20;
+  const ground = new THREE.GridHelper(gridSize, gridSize * 2, 0x99b7c7, 0xbcd3de);
+  ground.position.y = groundY;
+  ground.material.transparent = true;
+  ground.material.opacity = env ? 0.25 : 1; // subtle over the shrine
   scene.add(ground);
 
   walkRig = {
@@ -406,13 +447,18 @@ function loadWalkRig(sceneDef) {
     phase: 0, lastTime: 0,
     char: { x: 0, z: 0 }, heading: 0,
     keys: {},
+    groundY, scaleGroup,
   };
 
-  // Orbit around the avatar's mid-height, viewed from its front (+X), where
-  // the legs/shoes are visible below the coat (from the side the coat hides
-  // them).
-  orbit.target.set(0, 0.45, 0);
-  camera.position.set(2.0, 0.55, 0);
+  if (env) {
+    // Third-person: behind and above the avatar, looking at its upper body.
+    orbit.target.set(0, groundY + 0.6 * avatarScale, 0);
+    camera.position.set(2.2 * avatarScale, groundY + 1.0 * avatarScale, 2.2 * avatarScale);
+  } else {
+    // Front view (+X); legs/shoes visible below the coat.
+    orbit.target.set(0, 0.45, 0);
+    camera.position.set(2.0, 0.55, 0);
+  }
   orbit.update();
 
   Promise.all(loadedMeshes.map((m) => m.initialized)).then(() => {
@@ -434,6 +480,25 @@ const walkSpeed = document.getElementById("walk-speed");
 const walkAmp = document.getElementById("walk-amp");
 const walkBob = document.getElementById("walk-bob");
 const walkSway = document.getElementById("walk-sway");
+const envWalkControls = document.getElementById("env-walk-controls");
+const walkGround = document.getElementById("walk-ground");
+const walkScale = document.getElementById("walk-scale");
+
+// Live-tune the shrine walk: ground plane height and avatar scale. Adjusting
+// these moves the walkable plane and resizes the avatar so its soles stay on
+// the plane (moveRoot.position.y = groundY; the FOOT_Y lift is inside the
+// scaled group, so scale keeps the feet grounded).
+function applyEnvWalkTuning() {
+  if (!walkRig || !walkRig.scaleGroup) return;
+  const g = Number(walkGround.value);
+  const s = Number(walkScale.value);
+  walkRig.groundY = g;
+  walkRig.moveRoot.position.y = g;
+  walkRig.scaleGroup.scale.setScalar(s);
+  if (walkRig.ground) walkRig.ground.position.y = g;
+}
+walkGround.addEventListener("input", applyEnvWalkTuning);
+walkScale.addEventListener("input", applyEnvWalkTuning);
 
 // Keyboard drives the avatar (only in the walk scene, where walkRig exists).
 // W/S forward-back, A/D turn, Q/E strafe.
@@ -450,8 +515,17 @@ addEventListener("keyup", (e) => {
 });
 
 sceneSelect.addEventListener("change", () => {
+  const def = SCENES[sceneSelect.value];
   populateFormats(sceneSelect.value);
-  walkControls.style.display = SCENES[sceneSelect.value].walk ? "block" : "none";
+  walkControls.style.display = def.walk ? "block" : "none";
+  // Ground/scale sliders only apply to a walk scene with an environment. Seed
+  // them from the scene's defaults so tuning starts from a sensible place.
+  const hasEnv = !!(def.walk && def.walk.env);
+  envWalkControls.style.display = hasEnv ? "block" : "none";
+  if (hasEnv) {
+    walkGround.value = def.walk.groundY ?? 0;
+    walkScale.value = def.walk.scale ?? 1;
+  }
   loadCurrent();
 });
 formatSelect.addEventListener("change", loadCurrent);
@@ -737,8 +811,9 @@ renderer.setAnimationLoop((time) => {
     walkRig.swayGroup.rotation.y = sway * 0.5 * Math.sin(phase); // ひねり
     walkRig.swayGroup.position.y = bob * Math.abs(Math.sin(phase)); // 上下バウンド
 
-    // camera orbits around the moving avatar
-    orbit.target.set(walkRig.char.x, 0.45, walkRig.char.z);
+    // camera orbits around the moving avatar (at its mid-height above ground)
+    const eyeY = walkRig.groundY + 0.45 * (walkRig.scaleGroup ? walkRig.scaleGroup.scale.x : 1);
+    orbit.target.set(walkRig.char.x, eyeY, walkRig.char.z);
   }
 
   renderer.render(scene, camera);
