@@ -76,6 +76,11 @@ function registerPlyPlugin() {
 }
 
 export default defineConfig({
+  // GitHub Pages serves this project site under /splat-compare-viewer/, so the
+  // hosted build must emit that base prefix (main.js reads it via BASE_URL to
+  // prefix asset paths). Local dev stays at "/". Baked in here so a redeploy
+  // can't forget the CLI --base flag and ship root-absolute paths that 404.
+  base: process.env.VITE_HOSTED ? "/splat-compare-viewer/" : "/",
   // Local dev serves everything from public/ (all scenes).
   // Hosted build (VITE_HOSTED=1) uses public-hosted/ which contains only the
   // small kiruya assets, so GitHub Pages stays under its size limits.
