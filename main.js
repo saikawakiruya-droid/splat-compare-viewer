@@ -62,7 +62,7 @@ const SCENES = {
       body: "/part_body.ply",
       legs: ["/part_legL.ply", "/part_legR.ply"],
       pivot: [0.0497, 0.2502, 0.0],
-      groundY: 0.95, // display-space ground height (data ground y≈-0.97, flipped)
+      groundY: 0.15, // display-space courtyard floor (tuned visually in shrine_light)
       scale: 1.5, // avatar scale relative to the shrine
     },
   },
