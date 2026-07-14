@@ -39,6 +39,29 @@
       display: block;
       margin: 2px 0;
     }
+
+    #drop-hint {
+      opacity: 0.7;
+      margin-top: 6px;
+      border-top: 1px solid #444;
+      padding-top: 6px;
+    }
+
+    /* Highlight the whole page while a file is being dragged over it. */
+    body.dragging::after {
+      content: "ドロップして表示";
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font: 24px sans-serif;
+      color: #fff;
+      background: rgba(30, 90, 140, 0.35);
+      border: 3px dashed rgba(255, 255, 255, 0.7);
+      z-index: 100;
+      pointer-events: none;
+    }
   </style>
 </head>
 
@@ -63,6 +86,10 @@
       <label>足振り° <input id="walk-amp" type="range" min="0" max="45" step="1" value="12"></label>
       <label>上下バウンド <input id="walk-bob" type="range" min="0" max="0.08" step="0.005" value="0.03"></label>
       <label>上半身ゆれ <input id="walk-sway" type="range" min="0" max="0.2" step="0.01" value="0.07"></label>
+    </div>
+    <div id="drop-hint">
+      .ply をドロップ → <b>登録</b>（RAD/SPZ/.splat を自動生成し比較シーンに追加）<br>
+      .spz / .splat / .rad をドロップ → 表示のみ
     </div>
     <div id="stats"></div>
   </div>

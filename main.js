@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { SparkRenderer, SplatMesh, SparkControls, isMobile } from "@sparkjsdev/spark";
+import { SparkRenderer, SplatMesh, SparkControls, isMobile, SplatFileType } from "@sparkjsdev/spark";
 
 // Catalog of scenes. Each scene lists the format variants that actually
 // exist in public/, plus a good starting camera. formats maps a format key to
@@ -116,6 +116,7 @@ function applyQuality(name) {
 
 const controls = new SparkControls({ canvas: renderer.domElement });
 controls.pointerControls.reverseRotate = isMobile();
+window.__controls = controls; // exposed for debugging/headless verification
 
 // OrbitControls is used only for the walk scene (mouse-drag orbit + wheel zoom
 // around the avatar), so the keyboard is free to drive the avatar. Disabled by
@@ -135,6 +136,11 @@ applyQuality(qualitySelect.value);
 
 let currentMesh = null;
 let loadLine = "";
+// The scene whose camera is currently framed. Switching *format* within the
+// same scene must keep the camera where the user left it (that's the whole
+// point of a comparison viewer — compare the same viewpoint across formats),
+// so we only (re)frame the camera when the scene key actually changes.
+let framedSceneKey = null;
 
 // Populate the scene dropdown once, then repopulate formats whenever the scene
 // changes so only the variants that exist for that scene are offered.
@@ -182,8 +188,19 @@ function loadCurrent() {
   const sceneKey = sceneSelect.value;
   const sceneDef = SCENES[sceneKey];
 
-  camera.position.set(...sceneDef.camera.pos);
-  camera.lookAt(...sceneDef.camera.look);
+  // Only reframe when the scene actually changed. A format switch (same scene)
+  // keeps the current camera so you compare the identical viewpoint. The walk
+  // scene always reframes (it re-rigs the avatar).
+  const keepCamera = sceneKey === framedSceneKey && !sceneDef.walk;
+  framedSceneKey = sceneKey;
+
+  // Static scenes ship a hand-tuned camera; dynamically registered scenes
+  // (add-scene.sh) have none, so they get auto-framed from the mesh bounds on
+  // load instead (see the onLoad handlers below).
+  if (!keepCamera && sceneDef.camera) {
+    camera.position.set(...sceneDef.camera.pos);
+    camera.lookAt(...sceneDef.camera.look);
+  }
   disposeCurrent();
 
   if (sceneDef.walk) {
@@ -196,7 +213,11 @@ function loadCurrent() {
     return;
   }
 
-  // Non-walk scenes: standard SparkControls (FPS + look), OrbitControls off.
+  // All non-walk scenes (presets AND registered/dropped) use SparkControls:
+  // WASD/arrows move, drag looks, mouse-wheel dollies forward/back. Keeping
+  // registered scenes on the same controls as presets means the keyboard works
+  // everywhere and you can always move closer (wheel or W). OrbitControls is
+  // reserved for the walk scene, where the keyboard must drive the avatar.
   useOrbit = false;
   orbit.enabled = false;
   controls.fpsMovement.enable = true;
@@ -223,11 +244,13 @@ function loadCurrent() {
     onLoad: () => {
       const loadMs = (performance.now() - startTime).toFixed(0);
       loadLine = `${url} loaded in ${loadMs}ms`;
-      // The LOD system only walks the tree when it sees the camera move, so a
-      // freshly loaded mesh stays at zero splats (black screen) until the user
-      // happens to drag. Nudge the camera once to kick off the first traversal.
-      // Must exceed SparkRenderer's 1e-3 "view changed" distance threshold.
-      camera.position.x += 0.02;
+      // On a format switch (keepCamera) leave the camera alone and just nudge
+      // to kick the LOD tree. Otherwise frame the scene: preset scenes only
+      // need the nudge (their camera was set above), dynamic scenes frame from
+      // the mesh bounds. The nudge must exceed SparkRenderer's 1e-3 "view
+      // changed" distance threshold so the freshly loaded mesh actually draws.
+      if (keepCamera || sceneDef.camera) camera.position.x += 0.02;
+      else frameCamera(mesh);
     },
   });
   mesh.quaternion.set(1, 0, 0, 0);
@@ -354,6 +377,168 @@ sceneSelect.addEventListener("change", () => {
 });
 formatSelect.addEventListener("change", loadCurrent);
 
+// --- Drop a local file to view it -------------------------------------------
+// Lets anyone drag their own .ply/.spz/.splat/.rad onto the page and view it,
+// fully client-side (Spark decodes in-browser; no server/upload). View-only —
+// format generation still happens offline.
+const EXT_TO_TYPE = {
+  ply: SplatFileType.PLY,
+  spz: SplatFileType.SPZ,
+  splat: SplatFileType.SPLAT,
+  rad: SplatFileType.RAD,
+};
+
+function frameCamera(mesh) {
+  // Dropped files have unknown scale, so fit the camera after load.
+  // getBoundingBox() is local-space; the mesh applies a y/z flip
+  // (quaternion 1,0,0,0), so flip the center to world space.
+  try {
+    const box = mesh.getBoundingBox(true);
+    const c = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    // LOD meshes (RAD/SPZ) may report an unpopulated box right after load
+    // (null/NaN coords) before the tree has streamed in. Bail to a safe default
+    // rather than driving the camera to NaN (which blanks the view for good).
+    const finite = [c.x, c.y, c.z, size.x, size.y, size.z].every(Number.isFinite);
+    if (!finite) throw new Error("bounding box not ready");
+    const wc = new THREE.Vector3(c.x, -c.y, -c.z);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const dist = (maxDim * 0.6) / Math.tan((camera.fov * Math.PI) / 360) + maxDim * 0.5;
+    camera.position.set(wc.x, wc.y, wc.z + dist);
+    camera.lookAt(wc);
+    camera.position.x += 0.02; // nudge to kick LOD traversal
+  } catch (_) {
+    camera.position.set(0, 0, 3);
+    camera.lookAt(0, 0, 0);
+    camera.position.x += 0.02;
+  }
+}
+
+async function loadDroppedFile(file) {
+  const ext = file.name.split(".").pop().toLowerCase();
+  const fileType = EXT_TO_TYPE[ext];
+  if (!fileType) {
+    loadLine = `未対応の形式: .${ext}（.ply/.spz/.splat/.rad のみ）`;
+    statsEl.textContent = loadLine;
+    return;
+  }
+  disposeCurrent();
+  walkControls.style.display = "none";
+  framedSceneKey = null; // a viewed drop isn't a scene; next scene load reframes
+  // Same controls as every non-walk scene: SparkControls (WASD move, drag look,
+  // wheel dolly). Keyboard works and you can move closer.
+  useOrbit = false;
+  orbit.enabled = false;
+  controls.fpsMovement.enable = true;
+
+  const isLod = fileType === SplatFileType.RAD || fileType === SplatFileType.SPZ;
+  qualitySelect.disabled = !isLod;
+
+  loadLine = `Loading (ドロップ) ${file.name} ...`;
+  statsEl.textContent = loadLine;
+  const startTime = performance.now();
+  const fileBytes = new Uint8Array(await file.arrayBuffer());
+
+  const mesh = new SplatMesh({
+    fileBytes,
+    fileType,
+    fileName: file.name,
+    lod: isLod,
+    nonLod: true,
+    onLoad: () => {
+      loadLine = `${file.name} loaded in ${(performance.now() - startTime).toFixed(0)}ms`;
+      frameCamera(mesh);
+    },
+  });
+  mesh.quaternion.set(1, 0, 0, 0);
+  scene.add(mesh);
+  loadedMeshes = [mesh];
+  currentMesh = mesh;
+  window.__mesh = mesh;
+}
+
+addEventListener("dragover", (e) => {
+  e.preventDefault();
+  document.body.classList.add("dragging");
+});
+addEventListener("dragleave", (e) => {
+  if (e.relatedTarget === null) document.body.classList.remove("dragging");
+});
+// Dropping a .ply REGISTERS it: the file is uploaded to the local dev server,
+// which runs scripts/add-scene.sh (build-lod + ply_to_splat.py) to generate the
+// RAD/SPZ/.splat comparison formats, then the new scene is added to the Scene
+// dropdown and selected. RAD/SPZ generation is native and can't run in-browser,
+// which is why it goes through the server. Dropping an already-built
+// .rad/.spz/.splat just views it (no comparison set to generate).
+async function registerDroppedPly(file) {
+  const label = file.name.replace(/\.[^.]+$/, "");
+  loadLine = `登録中 (${file.name}) … RAD/SPZ/.splat を生成中（数秒〜十数秒）`;
+  statsEl.textContent = loadLine;
+  try {
+    const q = new URLSearchParams({ name: label, label, filename: file.name });
+    const res = await fetch(`/api/register-ply?${q.toString()}`, {
+      method: "POST",
+      body: await file.arrayBuffer(),
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
+    if (!data.ok) throw new Error(data.error || "登録に失敗しました");
+
+    const entry = (data.scenes?.scenes || []).find((s) => s.key === data.key);
+    applyDynamicScene(entry);
+    sceneSelect.value = data.key;
+    populateFormats(data.key);
+    walkControls.style.display = "none";
+    loadLine = `登録完了: ${label}`;
+    statsEl.textContent = loadLine;
+    loadCurrent();
+  } catch (err) {
+    // Registration needs the dev server (npx vite). If it isn't reachable
+    // (e.g. the hosted build) or the tool failed, fall back to view-only so the
+    // drop still shows something, and say why.
+    loadLine = `登録できませんでした（${err.message}）。表示のみ行います。npx vite で起動中か確認してください。`;
+    statsEl.textContent = loadLine;
+    loadDroppedFile(file);
+  }
+}
+
+addEventListener("drop", (e) => {
+  e.preventDefault();
+  document.body.classList.remove("dragging");
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  const ext = file.name.split(".").pop().toLowerCase();
+  if (ext === "ply") registerDroppedPly(file);
+  else loadDroppedFile(file);
+});
+
+// Scenes registered by scripts/add-scene.sh live in public/scenes.json (not in
+// the SCENES literal above), so teammates can add their own .ply comparisons
+// without editing this file. Merge them in before the first load. Missing file
+// (nobody has registered a scene yet) is fine — the catch keeps the presets.
+// Register one scenes.json entry into SCENES + the dropdown. Adds a new option
+// or refreshes an existing one (re-registration). Returns the scene key.
+function applyDynamicScene(s) {
+  if (!s || !s.key || !s.formats) return null;
+  const isNew = !SCENES[s.key];
+  // add-scene.sh embeds a camera computed from the PLY bounds; if it's missing
+  // (older entry) loadCurrent auto-frames from the mesh instead.
+  SCENES[s.key] = { label: s.label || s.key, formats: s.formats, camera: s.camera || null, dynamic: true };
+  if (isNew) sceneSelect.add(new Option(`+ ${s.label || s.key}`, s.key));
+  return s.key;
+}
+
+async function mergeDynamicScenes() {
+  try {
+    const res = await fetch(asset("/scenes.json"), { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    for (const s of data.scenes || []) applyDynamicScene(s);
+  } catch (_) {
+    /* no scenes.json / bad JSON — keep the built-in presets */
+  }
+}
+
+await mergeDynamicScenes();
 populateFormats(sceneSelect.value);
 loadCurrent();
 

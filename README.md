@@ -19,6 +19,49 @@ npx vite
 > ブラウザが `requestAnimationFrame` を間引くため、スプラットのソートが進まず
 > 描画が止まって見える。
 
+## 自分の .ply を登録して比較する
+
+手元の 3DGS PLY を 1 本渡すと、比較用の 4 形式（RAD / SPZ / .splat / 生PLY）を
+自動生成し、Scene ドロップダウンに追加する。**メンバーは viewer/ を受け取って
+`npm install` した後、これを実行するだけ**（変換ツールは `bin/` に同梱済み）。
+
+### 方法A: ページに .ply をドロップ（かんたん）
+
+`npx vite` で起動中に、ブラウザへ **.ply をドラッグ&ドロップ**するだけ。
+ドロップされた PLY はローカルの Vite 開発サーバーに送られ、サーバー側で
+`scripts/add-scene.sh` が走って 4 形式を生成→ Scene に追加→自動選択される。
+（RAD/SPZ 生成はネイティブ処理でブラウザ内では不可能なため、開発サーバーを
+経由する。ビルド済みの静的サイトにはこの機能は無く、表示専用になる。）
+
+- `.spz` / `.splat` / `.rad` をドロップした場合は**表示のみ**（比較セットは生成しない）。
+- 操作はプリセットと共通（SparkControls）: **W/A/S/D・矢印で移動、ドラッグで視点、
+  マウスホイールで前後（＝寄り引き）**。歩行シーンだけはキーボードがアバター操作に割り当たる。
+
+### 方法B: CLI（バッチ・名前指定したいとき）
+
+```bash
+./scripts/add-scene.sh <file.ply> [name] [label]
+# 例:
+./scripts/add-scene.sh ~/models/mychar.ply mychar "マイキャラ"
+```
+
+- 生成物と登録先は **すべて `viewer/public/`**（Vite がローカル配信する場所）:
+  | ファイル | 内容 | 生成元 |
+  |---|---|---|
+  | `public/<name>-lod.rad` | RAD（LOD, Range配信可） | `bin/build-lod --rad` |
+  | `public/<name>-lod.spz` | SPZ（LOD） | `bin/build-lod --spz` |
+  | `public/<name>.splat` | .splat（LOD無, SH無/8bit） | `bin/ply_to_splat.py` |
+  | `public/<name>.ply` | 生PLY（LOD無, 入力のコピー） | cp |
+  | `public/scenes.json` | 登録シーン一覧（形式＋カメラ） | スクリプトが追記 |
+- 実行後、ブラウザを**再読込**すると Scene に `+ <label>` として現れる。
+  同じ name で再実行すると上書き登録される。
+- カメラは PLY のバウンズ（各軸 1–99 パーセンタイルで空/浮遊物を除外）から
+  自動算出して `scenes.json` に焼き込む。表示は他シーンと同じく y,z 反転（-Y上前提）。
+- 必要環境: `python3` + `numpy`、Apple Silicon Mac（`bin/build-lod` は arm64 ネイティブ）。
+- **注意:** `public/` の生成物は各自ローカル。生成したシーンを他メンバーにも配るには、
+  その `public/<name>.*` と `scenes.json` の該当エントリを共有ストレージ経由で配布する
+  （下記「アセット」と同じ流儀）。`scenes.json` は build 時に上書きされないので追記でよい。
+
 ## アセット
 
 スプラットの実データは容量が大きいため Git には含めない。共有セットを取得して
