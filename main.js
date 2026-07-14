@@ -222,14 +222,12 @@ function loadCurrent() {
   orbit.enabled = false;
   controls.fpsMovement.enable = true;
 
-  const url = asset(sceneDef.formats[formatSelect.value].file);
-  loadLine = `Loading ${url} ...`;
-  statsEl.textContent = loadLine;
-  const startTime = performance.now();
-
-  // Raw .ply/.splat have no LOD tree, so the whole file loads flat and every
-  // splat stays resident. RAD/SPZ carry the tree and stream/foveate.
-  const isLod = url.endsWith(".rad") || url.endsWith(".spz");
+  const fmt = sceneDef.formats[formatSelect.value];
+  // A format either lives on the server (fmt.file, loaded by URL) or was dropped
+  // by the user and lives in memory (fmt.blob, a File — used for the client-side
+  // comparison scenes that work on the static host with no server).
+  const fmtKey = formatSelect.value;
+  const isLod = fmtKey === "rad" || fmtKey === "spz";
 
   // The quality presets mostly drive LOD (resident splat count, LOD node
   // selection), which does nothing without a tree. Disable the control for raw
@@ -237,31 +235,63 @@ function loadCurrent() {
   qualitySelect.disabled = !isLod;
   qualitySelect.title = isLod ? "" : "生PLY/.splat はLOD無のため画質指定は効きません";
 
+  const label = fmt.blob ? `(ローカル) ${fmt.blob.name}` : asset(fmt.file);
+  loadLine = `Loading ${label} ...`;
+  statsEl.textContent = loadLine;
+  const startTime = performance.now();
+
+  const onLoad = (mesh) => {
+    const loadMs = (performance.now() - startTime).toFixed(0);
+    loadLine = `${label} loaded in ${loadMs}ms`;
+    // On a format switch (keepCamera) leave the camera alone and just nudge to
+    // kick the LOD tree. Otherwise frame the scene: preset scenes only need the
+    // nudge (their camera was set above), dynamic/client scenes frame from the
+    // mesh bounds. The nudge must exceed SparkRenderer's 1e-3 "view changed"
+    // distance threshold so the freshly loaded mesh actually draws.
+    if (keepCamera || sceneDef.camera) camera.position.x += 0.02;
+    else frameCamera(mesh);
+  };
+
+  const finishMesh = (mesh) => {
+    mesh.quaternion.set(1, 0, 0, 0);
+    scene.add(mesh);
+    loadedMeshes = [mesh];
+    currentMesh = mesh;
+    window.__mesh = mesh;
+    window.__scene = scene;
+    window.__camera = camera;
+    window.__renderer = renderer;
+    window.__spark = spark;
+  };
+
+  if (fmt.blob) {
+    // Client-side: decode the dropped File's bytes in-browser. Async read, but
+    // disposeCurrent already cleared the old mesh so a fast format re-switch is
+    // safe (a late arrival just adds its mesh; the next switch disposes it).
+    const fileType = EXT_TO_TYPE[fmt.blob.name.split(".").pop().toLowerCase()];
+    fmt.blob.arrayBuffer().then((ab) => {
+      const mesh = new SplatMesh({
+        fileBytes: new Uint8Array(ab),
+        fileType,
+        fileName: fmt.blob.name,
+        lod: isLod,
+        nonLod: true,
+        onLoad: () => onLoad(mesh),
+      });
+      finishMesh(mesh);
+    });
+    return;
+  }
+
+  // Server-hosted: load by URL. Raw .ply/.splat have no LOD tree, so the whole
+  // file loads flat and every splat stays resident. RAD/SPZ carry the tree.
   const mesh = new SplatMesh({
-    url,
+    url: asset(fmt.file),
     lod: isLod,
     nonLod: true,
-    onLoad: () => {
-      const loadMs = (performance.now() - startTime).toFixed(0);
-      loadLine = `${url} loaded in ${loadMs}ms`;
-      // On a format switch (keepCamera) leave the camera alone and just nudge
-      // to kick the LOD tree. Otherwise frame the scene: preset scenes only
-      // need the nudge (their camera was set above), dynamic scenes frame from
-      // the mesh bounds. The nudge must exceed SparkRenderer's 1e-3 "view
-      // changed" distance threshold so the freshly loaded mesh actually draws.
-      if (keepCamera || sceneDef.camera) camera.position.x += 0.02;
-      else frameCamera(mesh);
-    },
+    onLoad: () => onLoad(mesh),
   });
-  mesh.quaternion.set(1, 0, 0, 0);
-  scene.add(mesh);
-  loadedMeshes = [mesh];
-  currentMesh = mesh;
-  window.__mesh = mesh;
-  window.__scene = scene;
-  window.__camera = camera;
-  window.__renderer = renderer;
-  window.__spark = spark;
+  finishMesh(mesh);
 }
 
 // Load body + legs as independent SplatMeshes and hang each leg off a hip
@@ -501,11 +531,76 @@ async function registerDroppedPly(file) {
   }
 }
 
+// Register several already-built format files as ONE client-side comparison
+// scene — fully in-browser, no server. This is how the static host (GitHub
+// Pages) supports comparison: generate the formats once locally (add-scene.sh /
+// npx vite), then drop the resulting .rad/.spz/.splat/.ply set here to compare
+// the same object across formats with the Format dropdown. Files stay in memory
+// (each format keeps its File; bytes are read on demand when selected).
+let clientSceneCounter = 0;
+function registerLocalFiles(files) {
+  // One file per format; a later drop of the same extension replaces it.
+  const FMT_LABEL = { rad: "RAD — LOD", spz: "SPZ — LOD", ply: "生PLY — LOD無", splat: ".splat — LOD無" };
+  const byFmt = {};
+  const names = [];
+  for (const f of files) {
+    const ext = f.name.split(".").pop().toLowerCase();
+    if (!EXT_TO_TYPE[ext]) continue;
+    byFmt[ext] = f;
+    names.push(f.name);
+  }
+  const keys = Object.keys(byFmt);
+  if (!keys.length) {
+    loadLine = "対応形式(.ply/.spz/.splat/.rad)がドロップされていません。";
+    statsEl.textContent = loadLine;
+    return;
+  }
+
+  // Scene label: longest common filename prefix (strip -lod/format suffixes),
+  // falling back to the first file's base name.
+  const bases = names.map((n) => n.replace(/\.[^.]+$/, "").replace(/-lod$/i, ""));
+  let base = bases[0];
+  for (const b of bases) { while (!b.startsWith(base)) base = base.slice(0, -1); }
+  base = base.replace(/[-_]$/, "") || bases[0];
+
+  const formats = {};
+  for (const k of ["rad", "spz", "ply", "splat"]) {
+    if (!byFmt[k]) continue;
+    const mb = byFmt[k].size / 1024 / 1024;
+    const human = mb >= 1 ? `${mb.toFixed(1)}MB` : `${Math.max(1, Math.round(byFmt[k].size / 1024))}KB`;
+    formats[k] = { file: null, blob: byFmt[k], label: `${FMT_LABEL[k]} (${human})` };
+  }
+
+  const key = `local_${clientSceneCounter++}`;
+  SCENES[key] = { label: `${base} (ローカル)`, formats, camera: null, dynamic: true, clientSide: true };
+  sceneSelect.add(new Option(`+ ${base} (ローカル)`, key));
+  sceneSelect.value = key;
+  populateFormats(key);
+  walkControls.style.display = "none";
+  loadLine = `ローカル比較シーンを登録: ${base} — ${keys.map((k) => k.toUpperCase()).join(" / ")}`;
+  statsEl.textContent = loadLine;
+  loadCurrent();
+}
+
 addEventListener("drop", (e) => {
   e.preventDefault();
   document.body.classList.remove("dragging");
-  const file = e.dataTransfer.files[0];
-  if (!file) return;
+  const files = [...(e.dataTransfer?.files || [])];
+  if (!files.length) return;
+
+  const splatFiles = files.filter((f) => EXT_TO_TYPE[f.name.split(".").pop().toLowerCase()]);
+
+  // Multiple splat files at once → treat them as one object in several formats
+  // and build a client-side comparison scene (works on the static host).
+  if (splatFiles.length >= 2) {
+    registerLocalFiles(splatFiles);
+    return;
+  }
+
+  // Single file: a .ply tries server-side registration (local dev only, which
+  // generates the other formats); anything else just gets viewed. Both fall
+  // back to client-side view when there's no server.
+  const file = files[0];
   const ext = file.name.split(".").pop().toLowerCase();
   if (ext === "ply") registerDroppedPly(file);
   else loadDroppedFile(file);
