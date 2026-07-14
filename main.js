@@ -118,6 +118,18 @@ const controls = new SparkControls({ canvas: renderer.domElement });
 controls.pointerControls.reverseRotate = isMobile();
 window.__controls = controls; // exposed for debugging/headless verification
 
+// Spark's default move speed is 1 unit/sec — painfully slow in a scene that
+// spans tens of units (a shrine) or sits ~170 units out (the 28M scan). Scale
+// keyboard + wheel speed to the scene so it always takes ~1s to cross the
+// framing distance, whatever the scale. Hold Shift for a 5x burst (built in).
+function applyNavSpeed(refDist) {
+  const d = Math.max(0.5, refDist || 3);
+  controls.fpsMovement.moveSpeed = d * 1.2; // WASD / arrows
+  controls.pointerControls.scrollSpeed = d * 6; // mouse wheel dolly
+}
+applyNavSpeed(3);
+window.__applyNavSpeed = applyNavSpeed;
+
 // OrbitControls is used only for the walk scene (mouse-drag orbit + wheel zoom
 // around the avatar), so the keyboard is free to drive the avatar. Disabled by
 // default; loadCurrent toggles it against SparkControls per scene.
@@ -200,6 +212,9 @@ function loadCurrent(avoid = []) {
   if (!keepCamera && sceneDef.camera) {
     camera.position.set(...sceneDef.camera.pos);
     camera.lookAt(...sceneDef.camera.look);
+    // Scale nav speed to how far the camera sits from what it's looking at.
+    const p = sceneDef.camera.pos, l = sceneDef.camera.look;
+    applyNavSpeed(Math.hypot(p[0] - l[0], p[1] - l[1], p[2] - l[2]));
   }
   disposeCurrent();
 
@@ -464,10 +479,12 @@ function frameCamera(mesh) {
     const dist = (maxDim * 0.6) / Math.tan((camera.fov * Math.PI) / 360) + maxDim * 0.5;
     camera.position.set(wc.x, wc.y, wc.z + dist);
     camera.lookAt(wc);
+    applyNavSpeed(dist); // scale nav speed to this object's size
     camera.position.x += 0.02; // nudge to kick LOD traversal
   } catch (_) {
     camera.position.set(0, 0, 3);
     camera.lookAt(0, 0, 0);
+    applyNavSpeed(3);
     camera.position.x += 0.02;
   }
 }
