@@ -75,12 +75,13 @@
     <br>
     Quality:
     <select id="quality-select">
+      <option value="vlow">最軽量 (0.5M splats, 1x)</option>
       <option value="low">軽量 (1.2M splats, 1x)</option>
       <option value="medium" selected>標準 (2.5M splats, 1.5x)</option>
       <option value="high">高画質 (5M splats, 2x)</option>
     </select>
     <div id="walk-controls" style="display:none; margin-top:6px; border-top:1px solid #444; padding-top:6px;">
-      <div style="opacity:.75; margin-bottom:4px;">W/S 前後・A/D 旋回・Q/E 横歩 / ドラッグ=カメラ</div>
+      <div style="opacity:.75; margin-bottom:4px;">W/S 前後・A/D 旋回・Q/E 横歩 / ドラッグ=視点・ホイール=ズーム</div>
       <label>歩行アニメ常時 <input id="walk-play" type="checkbox"></label>
       <label>速度 <input id="walk-speed" type="range" min="0.5" max="6" step="0.1" value="2.2"></label>
       <label>足振り° <input id="walk-amp" type="range" min="0" max="45" step="1" value="12"></label>

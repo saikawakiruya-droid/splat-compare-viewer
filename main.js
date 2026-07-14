@@ -106,6 +106,7 @@ const QUALITY = {
   high: { lodSplatCount: 5_000_000, lodRenderScale: 0.5, maxStdDev: 3.5, blurAmount: 0.2, pixelRatio: 2 },
   medium: { lodSplatCount: 2_500_000, lodRenderScale: 1.0, maxStdDev: 2.83, blurAmount: 0.2, pixelRatio: 1.5 },
   low: { lodSplatCount: 1_200_000, lodRenderScale: 1.0, maxStdDev: 2.83, blurAmount: 0.3, pixelRatio: 1 },
+  vlow: { lodSplatCount: 500_000, lodRenderScale: 1.5, maxStdDev: 2.83, blurAmount: 0.35, pixelRatio: 1 },
 };
 
 const spark = new SparkRenderer({
@@ -365,8 +366,20 @@ function loadCurrent(avoid = []) {
 // pivot so it can be swung per frame. This demonstrates that Spark handles the
 // pre-split part files: each part is just a normal SplatMesh in the scene graph.
 function loadWalkRig(sceneDef) {
-  qualitySelect.disabled = true; // raw parts, no LOD
-  qualitySelect.title = "分割パーツ(生パーツ)のため画質指定は効きません";
+  if (sceneDef.walk.env) {
+    // The environment (shrine) is LOD, so quality DOES apply — default to the
+    // light preset so walking stays smooth. The shrine at medium is ~2.5M
+    // resident splats (sorted every frame) at pixelRatio 1.5, which tanks the
+    // framerate; low is ~1.2M at pixelRatio 1 (roughly 4x cheaper). Users can
+    // raise it from the dropdown when they stop to admire the view.
+    qualitySelect.disabled = false;
+    qualitySelect.title = "";
+    qualitySelect.value = "low";
+    applyQuality("low");
+  } else {
+    qualitySelect.disabled = true; // raw parts only, no LOD
+    qualitySelect.title = "分割パーツ(生パーツ)のため画質指定は効きません";
+  }
   loadLine = "Loading 分割パーツ (body + 脚L + 脚R) ...";
   statsEl.textContent = loadLine;
   const startTime = performance.now();
@@ -447,7 +460,6 @@ function loadWalkRig(sceneDef) {
     moveRoot, swayGroup, hips, ground,
     phase: 0, lastTime: 0,
     char: { x: 0, z: 0 }, heading: 0,
-    prevX: 0, prevZ: 0, // for camera follow-by-delta (free mouse look)
     keys: {},
     groundY, scaleGroup,
   };
@@ -778,7 +790,7 @@ renderer.setAnimationLoop((time) => {
     const dt = walkRig.lastTime ? Math.min(0.05, (time - walkRig.lastTime) / 1000) : 0;
     walkRig.lastTime = time;
 
-    // --- locomotion: QWEASD drive the avatar over the fixed ground ---
+    // --- locomotion: A/D turn, W/S forward-back, Q/E strafe ---
     const k = walkRig.keys;
     if (k.a) walkRig.heading += WALK_TURN_SPEED * dt;
     if (k.d) walkRig.heading -= WALK_TURN_SPEED * dt;
@@ -798,22 +810,10 @@ renderer.setAnimationLoop((time) => {
     walkRig.moveRoot.position.z = walkRig.char.z;
     walkRig.moveRoot.rotation.y = walkRig.heading;
 
-    // Camera follows the avatar's *movement* without locking to it: shift the
-    // orbit target and camera by however far the avatar moved this frame. The
-    // keyboard drives the avatar; the mouse still freely orbits/pans/zooms the
-    // world view (which rides along as you walk). Earlier the target was hard-
-    // snapped to the avatar every frame, so the mouse view kept getting yanked
-    // back — that's the coupling this removes.
-    const dxs = walkRig.char.x - walkRig.prevX;
-    const dzs = walkRig.char.z - walkRig.prevZ;
-    if (dxs || dzs) {
-      orbit.target.x += dxs;
-      orbit.target.z += dzs;
-      camera.position.x += dxs;
-      camera.position.z += dzs;
-    }
-    walkRig.prevX = walkRig.char.x;
-    walkRig.prevZ = walkRig.char.z;
+    // Controls are fully separated: the keyboard moves ONLY the avatar; the
+    // camera never moves on keyboard. The camera is mouse-only (drag orbit, wheel
+    // zoom, right-drag pan) around a fixed target, so the avatar walks freely
+    // within the view. Pan with the mouse to keep it in frame if it walks off.
 
     // --- walk cycle (ported from viewer_walk.html) ---
     // Animate while moving; the 歩行 checkbox forces it on for an in-place demo.
