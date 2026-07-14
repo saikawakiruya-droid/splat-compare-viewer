@@ -123,9 +123,15 @@ window.__controls = controls; // exposed for debugging/headless verification
 // keyboard + wheel speed to the scene so it always takes ~1s to cross the
 // framing distance, whatever the scale. Hold Shift for a 5x burst (built in).
 function applyNavSpeed(refDist) {
+  // A scene's coordinates can span huge ranges, but the things you actually
+  // navigate around (a shrine, a person) stay roughly the same size — so speed
+  // should NOT track scene extent linearly (that made wide scans race). Scale
+  // by sqrt (weak dependence) and hard-cap. The cap also neutralizes outliers:
+  // a few stray far splats inflating the bounds can't blow up the speed.
   const d = Math.max(0.5, refDist || 3);
-  controls.fpsMovement.moveSpeed = d * 0.4; // WASD / arrows (Shift = 5x burst)
-  controls.pointerControls.scrollSpeed = d * 2; // mouse wheel dolly
+  const s = Math.sqrt(d);
+  controls.fpsMovement.moveSpeed = Math.min(6, 0.55 * s); // WASD / arrows (Shift = 5x)
+  controls.pointerControls.scrollSpeed = Math.min(24, 2.2 * s); // mouse wheel dolly
 }
 applyNavSpeed(3);
 window.__applyNavSpeed = applyNavSpeed;
