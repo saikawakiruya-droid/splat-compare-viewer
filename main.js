@@ -184,7 +184,7 @@ function disposeCurrent() {
   currentMesh = null;
 }
 
-function loadCurrent() {
+function loadCurrent(avoid = []) {
   const sceneKey = sceneSelect.value;
   const sceneDef = SCENES[sceneKey];
 
@@ -252,6 +252,30 @@ function loadCurrent() {
     else frameCamera(mesh);
   };
 
+  // If the selected format can't load (missing file / 404 / decode error),
+  // don't leave a blank screen: auto-fall back to another format in the same
+  // scene so the object still renders. `avoid` tracks formats already tried so
+  // we can't loop. Guarded so onError and a rejected `initialized` (either may
+  // fire) only trigger one fallback.
+  let handled = false;
+  const onFail = (err) => {
+    if (handled) return;
+    handled = true;
+    const others = Object.keys(sceneDef.formats).filter((k) => k !== fmtKey && !avoid.includes(k));
+    if (others.length) {
+      loadLine = `${label} を読み込めません → ${others[0].toUpperCase()} に切替えて表示します。`;
+      statsEl.textContent = loadLine;
+      formatSelect.value = others[0];
+      loadCurrent([...avoid, fmtKey]);
+    } else {
+      loadLine = `この形式を読み込めませんでした（${(err && err.message) || err || "不明なエラー"}）。`;
+      statsEl.textContent = loadLine;
+    }
+  };
+  const watchMesh = (mesh) => {
+    if (mesh.initialized && mesh.initialized.catch) mesh.initialized.catch(onFail);
+  };
+
   const finishMesh = (mesh) => {
     mesh.quaternion.set(1, 0, 0, 0);
     scene.add(mesh);
@@ -277,9 +301,11 @@ function loadCurrent() {
         lod: isLod,
         nonLod: true,
         onLoad: () => onLoad(mesh),
+        onError: onFail,
       });
       finishMesh(mesh);
-    });
+      watchMesh(mesh);
+    }, onFail);
     return;
   }
 
@@ -290,8 +316,10 @@ function loadCurrent() {
     lod: isLod,
     nonLod: true,
     onLoad: () => onLoad(mesh),
+    onError: onFail,
   });
   finishMesh(mesh);
+  watchMesh(mesh);
 }
 
 // Load body + legs as independent SplatMeshes and hang each leg off a hip
