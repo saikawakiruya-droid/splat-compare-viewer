@@ -168,8 +168,15 @@ const sceneSelect = document.getElementById("scene-select");
 const formatSelect = document.getElementById("format-select");
 const qualitySelect = document.getElementById("quality-select");
 
-qualitySelect.addEventListener("change", () => applyQuality(qualitySelect.value));
-applyQuality(qualitySelect.value);
+// The user's chosen quality, kept across scene switches. The shrine-walk scene
+// temporarily forces a light preset for framerate; that must NOT stick to other
+// scenes (which would render them coarse), so every non-walk load restores this.
+let userQuality = qualitySelect.value;
+qualitySelect.addEventListener("change", () => {
+  userQuality = qualitySelect.value;
+  applyQuality(userQuality);
+});
+applyQuality(userQuality);
 
 let currentMesh = null;
 let loadLine = "";
@@ -274,6 +281,10 @@ function loadCurrent(avoid = []) {
   // formats so it doesn't imply an effect it can't have.
   qualitySelect.disabled = !isLod;
   qualitySelect.title = isLod ? "" : "生PLY/.splat はLOD無のため画質指定は効きません";
+  // Restore the user's chosen quality: a scene must never inherit the light
+  // preset the shrine-walk scene forced (which left new scenes rendering coarse).
+  qualitySelect.value = userQuality;
+  applyQuality(userQuality);
 
   const label = fmt.blob ? `(ローカル) ${fmt.blob.name}` : asset(fmt.file);
   loadLine = `Loading ${label} ...`;
