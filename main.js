@@ -132,6 +132,23 @@ function applyQuality(name) {
   spark.setDirty();
 }
 
+// --- Per-scene orientation --------------------------------------------------
+// Gaussian splats trained -Y-up are righted by a 180° flip about X (the long-
+// standing default). Point clouds and scans with other up-axes need a different
+// rotation, so each scene can carry an `orient` {rx,ry,rz} (degrees). The
+// orientation sliders edit the live mesh; for registered scenes it's saved back
+// to scenes.json so the fix sticks.
+const DEG = Math.PI / 180;
+function orientOf(sceneDef) {
+  const o = (sceneDef && sceneDef.orient) || {};
+  return { rx: o.rx ?? 180, ry: o.ry ?? 0, rz: o.rz ?? 0 };
+}
+function applyOrient(mesh, o) {
+  mesh.rotation.set(o.rx * DEG, o.ry * DEG, o.rz * DEG);
+}
+let orientTargets = []; // meshes the orientation sliders rotate
+let orientSceneKey = null; // key of the scene being oriented (for save)
+
 const controls = new SparkControls({ canvas: renderer.domElement });
 controls.pointerControls.reverseRotate = isMobile();
 window.__controls = controls; // exposed for debugging/headless verification
@@ -226,6 +243,7 @@ function disposeCurrent() {
   }
   loadedMeshes = [];
   currentMesh = null;
+  orientTargets = [];
 }
 
 function loadCurrent(avoid = []) {
@@ -256,9 +274,14 @@ function loadCurrent(avoid = []) {
     useOrbit = true;
     orbit.enabled = true;
     controls.fpsMovement.enable = false;
+    syncOrientUI(sceneDef, sceneKey); // hides the orientation panel
     loadWalkRig(sceneDef);
     return;
   }
+
+  // Orientation panel targets this scene's mesh; seed sliders from its orient.
+  orientSceneKey = sceneKey;
+  syncOrientUI(sceneDef, sceneKey);
 
   // All non-walk scenes (presets AND registered/dropped) use SparkControls:
   // WASD/arrows move, drag looks, mouse-wheel dollies forward/back. Keeping
@@ -328,7 +351,8 @@ function loadCurrent(avoid = []) {
   };
 
   const finishMesh = (mesh) => {
-    mesh.quaternion.set(1, 0, 0, 0);
+    applyOrient(mesh, orientOf(sceneDef));
+    orientTargets = [mesh];
     scene.add(mesh);
     loadedMeshes = [mesh];
     currentMesh = mesh;
@@ -406,7 +430,7 @@ function loadWalkRig(sceneDef) {
   if (env) {
     const isLod = env.endsWith(".rad") || env.endsWith(".spz");
     const envMesh = new SplatMesh({ url: asset(env), lod: isLod, nonLod: true });
-    envMesh.quaternion.set(1, 0, 0, 0);
+    applyOrient(envMesh, orientOf(sceneDef)); // shrine is -Y-up (default)
     scene.add(envMesh);
     loadedMeshes.push(envMesh);
     window.__envMesh = envMesh;
@@ -525,6 +549,72 @@ function applyEnvWalkTuning() {
 walkGround.addEventListener("input", applyEnvWalkTuning);
 walkScale.addEventListener("input", applyEnvWalkTuning);
 
+// --- Orientation panel ------------------------------------------------------
+const orientControls = document.getElementById("orient-controls");
+const orientX = document.getElementById("orient-x");
+const orientY = document.getElementById("orient-y");
+const orientZ = document.getElementById("orient-z");
+const orientReset = document.getElementById("orient-reset");
+const orientSave = document.getElementById("orient-save");
+const orientStatus = document.getElementById("orient-status");
+
+function slidersToOrient() {
+  return { rx: Number(orientX.value), ry: Number(orientY.value), rz: Number(orientZ.value) };
+}
+function applyOrientLive() {
+  const o = slidersToOrient();
+  for (const m of orientTargets) applyOrient(m, o);
+  if (orientSceneKey && SCENES[orientSceneKey]) SCENES[orientSceneKey].orient = o; // session memory
+  spark.setDirty();
+  orientStatus.textContent = "";
+}
+[orientX, orientY, orientZ].forEach((el) => el.addEventListener("input", applyOrientLive));
+orientReset.addEventListener("click", () => {
+  orientX.value = 180; orientY.value = 0; orientZ.value = 0;
+  applyOrientLive();
+});
+orientSave.addEventListener("click", saveOrient);
+
+// Reflect a scene's orientation into the panel and toggle its availability.
+// Hidden for walk scenes; save only works for server-registered scenes.
+function syncOrientUI(sceneDef, sceneKey) {
+  const walk = !!(sceneDef && sceneDef.walk);
+  orientControls.style.display = walk ? "none" : "block";
+  if (walk) return;
+  const o = orientOf(sceneDef);
+  orientX.value = o.rx; orientY.value = o.ry; orientZ.value = o.rz;
+  const canSave = !!(sceneKey && sceneDef && sceneDef.dynamic && !sceneDef.clientSide);
+  orientSave.disabled = !canSave;
+  orientSave.title = canSave ? "" : "サーバー登録シーンのみ保存できます（npx vite 実行中）";
+  orientStatus.textContent = "";
+}
+
+// Persist the current orientation (and camera view) to scenes.json so the
+// registered scene opens correctly next time. Dev-server only.
+async function saveOrient() {
+  const key = orientSceneKey;
+  if (!key) return;
+  const orient = slidersToOrient();
+  const pos = camera.position.toArray();
+  const dir = camera.getWorldDirection(new THREE.Vector3());
+  const look = [pos[0] + dir.x * 5, pos[1] + dir.y * 5, pos[2] + dir.z * 5];
+  orientStatus.textContent = "保存中…";
+  try {
+    const res = await fetch("/api/update-scene", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key, orient, camera: { pos, look } }),
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
+    if (!data.ok) throw new Error(data.error || "保存に失敗しました");
+    SCENES[key].orient = orient;
+    SCENES[key].camera = { pos, look };
+    orientStatus.textContent = "保存しました ✓";
+  } catch (e) {
+    orientStatus.textContent = `保存できません（${e.message}）`;
+  }
+}
+
 // Keyboard drives the avatar (only in the walk scene, where walkRig exists).
 // W/S forward-back, A/D turn, Q/E strafe.
 const WALK_KEYS = new Set(["w", "a", "s", "d", "q", "e"]);
@@ -610,6 +700,9 @@ async function loadDroppedFile(file) {
   useOrbit = false;
   orbit.enabled = false;
   controls.fpsMovement.enable = true;
+  // Orientation adjustable this session (can't persist a dropped file).
+  orientSceneKey = null;
+  syncOrientUI({}, null);
 
   const isLod = fileType === SplatFileType.RAD || fileType === SplatFileType.SPZ;
   qualitySelect.disabled = !isLod;
@@ -630,7 +723,8 @@ async function loadDroppedFile(file) {
       frameCamera(mesh);
     },
   });
-  mesh.quaternion.set(1, 0, 0, 0);
+  applyOrient(mesh, orientOf(null));
+  orientTargets = [mesh];
   scene.add(mesh);
   loadedMeshes = [mesh];
   currentMesh = mesh;
@@ -767,7 +861,7 @@ function applyDynamicScene(s) {
   const isNew = !SCENES[s.key];
   // add-scene.sh embeds a camera computed from the PLY bounds; if it's missing
   // (older entry) loadCurrent auto-frames from the mesh instead.
-  SCENES[s.key] = { label: s.label || s.key, formats: s.formats, camera: s.camera || null, dynamic: true };
+  SCENES[s.key] = { label: s.label || s.key, formats: s.formats, camera: s.camera || null, orient: s.orient || null, dynamic: true };
   if (isNew) sceneSelect.add(new Option(`+ ${s.label || s.key}`, s.key));
   return s.key;
 }

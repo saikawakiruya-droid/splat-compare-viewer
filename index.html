@@ -92,6 +92,15 @@
         <label>アバター倍率 <input id="walk-scale" type="range" min="0.3" max="6" step="0.1" value="1.5"></label>
       </div>
     </div>
+    <div id="orient-controls" style="display:none; margin-top:6px; border-top:1px solid #444; padding-top:6px;">
+      <div style="opacity:.75; margin-bottom:2px;">向き調整（点群など上軸が違うシーン用）</div>
+      <label>回転X <input id="orient-x" type="range" min="-180" max="180" step="5" value="180"></label>
+      <label>回転Y <input id="orient-y" type="range" min="-180" max="180" step="5" value="0"></label>
+      <label>回転Z <input id="orient-z" type="range" min="-180" max="180" step="5" value="0"></label>
+      <button id="orient-reset" type="button">リセット</button>
+      <button id="orient-save" type="button">この向き＋視点を保存</button>
+      <span id="orient-status" style="opacity:.85; margin-left:4px;"></span>
+    </div>
     <div id="drop-hint">
       <b>複数形式をまとめてドロップ</b> → ローカル比較シーンとして登録（サーバー不要・リンク版でも可）<br>
       .ply を1つドロップ → <b>登録</b>（RAD/SPZ/.splat を自動生成／要ローカル起動）<br>

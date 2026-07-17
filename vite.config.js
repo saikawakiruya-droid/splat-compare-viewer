@@ -71,6 +71,35 @@ function registerPlyPlugin() {
           return json(500, { ok: false, error: String((e && e.message) || e) });
         }
       });
+
+      // Update an existing registered scene's orientation and/or saved camera
+      // (from the orientation panel's "保存"). Dev-server only.
+      server.middlewares.use("/api/update-scene", async (req, res) => {
+        const json = (code, obj) => {
+          res.statusCode = code;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify(obj));
+        };
+        if (req.method !== "POST") return json(405, { ok: false, error: "POST only" });
+        try {
+          const chunks = [];
+          for await (const c of req) chunks.push(c);
+          const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+          const { key, orient, camera } = body;
+          if (!key) return json(400, { ok: false, error: "key required" });
+          const scenesPath = path.join(root, "public", "scenes.json");
+          if (!existsSync(scenesPath)) return json(404, { ok: false, error: "scenes.json not found" });
+          const data = JSON.parse(await readFile(scenesPath, "utf8"));
+          const s = (data.scenes || []).find((x) => x.key === key);
+          if (!s) return json(404, { ok: false, error: `scene not found: ${key}` });
+          if (orient) s.orient = orient;
+          if (camera) s.camera = camera;
+          await writeFile(scenesPath, JSON.stringify(data, null, 2), "utf8");
+          return json(200, { ok: true });
+        } catch (e) {
+          return json(500, { ok: false, error: String((e && e.message) || e) });
+        }
+      });
     },
   };
 }
